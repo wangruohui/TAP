@@ -1,8 +1,8 @@
-VICUNA_PATH = ".../project/vicuna-13b-v1.5/" # ADD PATH
-LLAMA_PATH = ".../project/Llama-2-7b-chat-hf" # ADD PATH
+VICUNA_PATH = "/nvme/wangruohui/vicuna-7b-v1.5/" # ADD PATH
+LLAMA_PATH = "/nvme/wangruohui/Llama-2-7b-chat-hf" # ADD PATH
 
-VICUNA_API_LINK ="https://..." # ADD LINK
-LLAMA_API_LINK = "https://..." # ADD LINK
+VICUNA_API_LINK ="http://localhost:8000" # ADD LINK
+LLAMA_API_LINK = "http://localhost:8000" # ADD LINK
 
 
 ATTACK_TEMP = 1

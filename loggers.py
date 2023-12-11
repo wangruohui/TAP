@@ -29,8 +29,8 @@ class WandBLogger:
                 "branching_factor": args.branching_factor,
                 "target_str": args.target_str,
                 "n_streams": args.n_streams,
-
-            }
+            },
+            mode='offline'
         )
         self.is_jailbroken = False
         self.query_to_jailbreak = 0

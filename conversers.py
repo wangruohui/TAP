@@ -20,6 +20,7 @@ def load_attack_and_target_models(args):
                         max_n_attack_attempts = args.max_n_attack_attempts, 
                         temperature = ATTACK_TEMP, # init to 1
                         top_p = ATTACK_TOP_P, # init to 0.9
+                        device=0
                         )
     preloaded_model = None
     if args.attack_model == args.target_model:
@@ -30,6 +31,7 @@ def load_attack_and_target_models(args):
                         temperature = TARGET_TEMP, # init to 0
                         top_p = TARGET_TOP_P, # init to 1
                         preloaded_model = preloaded_model,
+                        device=1
                         )
     return attack_llm, target_llm
 
@@ -44,15 +46,16 @@ class AttackLLM():
                 max_n_tokens: int, 
                 max_n_attack_attempts: int, 
                 temperature: float,
-                top_p: float):
-        
+                top_p: float,
+                device: int = 0):
+
         self.model_name = model_name
         self.temperature = temperature
         self.max_n_tokens = max_n_tokens
         self.max_n_attack_attempts = max_n_attack_attempts
         self.top_p = top_p
-        self.model, self.template = load_indiv_model(model_name)
-        
+        self.model, self.template = load_indiv_model(model_name, device=device)
+
         if "vicuna" in model_name or "llama" in model_name:
             if "api-model" not in model_name:
                 self.model.extend_eos_tokens()
@@ -158,14 +161,15 @@ class TargetLLM():
             max_n_tokens: int, 
             temperature: float,
             top_p: float,
-            preloaded_model: object = None):
-        
+            preloaded_model: object = None,
+            device = 'auto'):
+
         self.model_name = model_name
         self.temperature = temperature
         self.max_n_tokens = max_n_tokens
         self.top_p = top_p
         if preloaded_model is None:
-            self.model, self.template = load_indiv_model(model_name)
+            self.model, self.template = load_indiv_model(model_name, device=device)
         else:
             self.model = preloaded_model
             _, self.template = get_model_path_and_template(model_name)
@@ -207,7 +211,7 @@ class TargetLLM():
 
 
 
-def load_indiv_model(model_name):
+def load_indiv_model(model_name, device="auto"):
     model_path, template = get_model_path_and_template(model_name)
     
     common.MODEL_NAME = model_name
@@ -225,7 +229,7 @@ def load_indiv_model(model_name):
                 model_path, 
                 torch_dtype=torch.float16,
                 low_cpu_mem_usage=True,
-                device_map="auto").eval()
+                device_map=device).eval()
 
         tokenizer = AutoTokenizer.from_pretrained(
             model_path,

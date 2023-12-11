@@ -1,3 +1,4 @@
+import os
 import copy
 import argparse
 import numpy as np
@@ -89,6 +90,8 @@ def main(args):
 
     common.ITER_INDEX = args.iter_index
     common.STORE_FOLDER = args.store_folder 
+
+    os.makedirs(common.STORE_FOLDER, exist_ok=True)
 
     # Initialize attack parameters
     attack_params = {
