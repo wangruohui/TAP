@@ -311,11 +311,11 @@ if __name__ == '__main__':
         "--evaluator-model",
         default="gpt-3.5-turbo",
         help="Name of evaluator model.",
-        choices=["gpt-3.5-turbo", 
-                 "gpt-4", 
-                 "gpt-4-turbo", 
-                 "gpt-4-1106-preview", 
-                 "no-evaluator"]
+        # choices=["gpt-3.5-turbo", 
+        #          "gpt-4", 
+        #          "gpt-4-turbo", 
+        #          "gpt-4-1106-preview", 
+        #          "no-evaluator"]
     )
     parser.add_argument(
         "--evaluator-max-n-tokens",
