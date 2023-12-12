@@ -1,8 +1,10 @@
-VICUNA_PATH = "/nvme/wangruohui/vicuna-7b-v1.5/" # ADD PATH
-LLAMA_PATH = "/nvme/wangruohui/Llama-2-7b-chat-hf" # ADD PATH
+from os.path import expanduser
 
-VICUNA_API_LINK ="http://localhost:8000" # ADD LINK
-LLAMA_API_LINK = "http://localhost:8000" # ADD LINK
+VICUNA_PATH = expanduser("~/lijun_models/vicuna-13b-v1.5-16k")  # ADD PATH
+LLAMA_PATH = expanduser("~/models/llama-2-7b-chat-hf")  # ADD PATH
+
+VICUNA_API_LINK = "https://..."  # ADD LINK
+LLAMA_API_LINK = "https://..."  # ADD LINK
 
 
 ATTACK_TEMP = 1
