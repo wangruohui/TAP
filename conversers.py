@@ -228,6 +228,7 @@ def load_indiv_model(model_name, device="auto"):
         model = AutoModelForCausalLM.from_pretrained(
                 model_path, 
                 torch_dtype=torch.float16,
+                use_flash_attention_2=True,
                 low_cpu_mem_usage=True,
                 device_map=device).eval()
 
