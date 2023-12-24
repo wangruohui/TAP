@@ -16,7 +16,7 @@ def load_evaluator(args):
     elif args.evaluator_model == "simple":
         return SimpleEvaluator(args)
     else:
-        raise NotImplementedError
+        return OpenSourceEvaluator(args)
 
 class EvaluatorBase:
     def __init__(self, args):
@@ -171,6 +171,54 @@ class GPTEvaluator(EvaluatorBase):
         outputs = [self.process_output_on_topic_score(raw_output) for raw_output in raw_outputs]
         return outputs
 
+
 class OpenSourceEvaluator(EvaluatorBase):
-    def __init__(self, evaluator_model, evaluator_tokenizer, args): 
-        raise NotImplementedError
+
+    def __init__(self, args): 
+        super().__init__(args)
+        from safeeval.models import MODELS
+
+        path = args.evaluator_model
+
+        if '7b' in path.lower():
+            gpus = 1
+        elif '13b' in path.lower():
+            gpus = 2
+
+        for name, model_cls in MODELS.items():
+            if name.lower() in path.lower():
+                model = model_cls(path=path, gpus=gpus)
+                break
+        else:
+            raise ValueError(f"Could not find model for {path}")
+        
+        self.evaluator_model = model
+
+    def judge_score(self, attack_prompt_list, target_response_list):
+        convs_list = [
+                    (self.system_prompt + '\n' + self.get_evaluator_prompt(prompt, response))
+                    for prompt, response in zip(attack_prompt_list, target_response_list)
+                ]
+
+        print(f'\tQuerying evaluator with {len(attack_prompt_list)} prompts (to evaluate judge scores)', flush=True)
+
+        raw_outputs = self.evaluator_model.chat(convs_list, 
+                                                        max_n_tokens = self.max_n_tokens,
+                                                        temperature = self.temperature)
+        
+        outputs = [self.process_output_judge_score(raw_output) for raw_output in raw_outputs]
+        return outputs
+
+    def on_topic_score(self, attack_prompt_list, original_prompt):
+        convs_list = [
+                    self.system_prompt_on_topic + '\n' + self.get_evaluator_prompt_on_topic(prompt)
+                    for prompt in attack_prompt_list
+                ]
+        
+        print(f'\tQuerying evaluator with {len(attack_prompt_list)} prompts (to evaluate on-topic scores)', flush=True)
+
+        raw_outputs = self.evaluator_model.chat(convs_list, 
+                                                        max_n_tokens = self.max_n_tokens,
+                                                        temperature = self.temperature)
+        outputs = [self.process_output_on_topic_score(raw_output) for raw_output in raw_outputs]
+        return outputs
