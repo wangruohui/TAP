@@ -8,6 +8,8 @@ from system_prompts import get_evaluator_system_prompt_for_judge, get_evaluator_
 
 from language_models import GPT
 
+from conversers import load_indiv_model
+
 def load_evaluator(args):
     if "gpt" in args.evaluator_model:
         return GPTEvaluator(args)
@@ -43,7 +45,8 @@ class EvaluatorBase:
 
     def process_output_judge_score(self, raw_output):
         # Captures numbers enclosed in double square brackets, i.e., strings of the form "[[<number>]]"
-        pattern = r'\[\[(\d+)\]\]' 
+        pattern = r'Rating:.*?(\d+)' 
+        # pattern = r'\[\[(\d+)\]\]' 
         match = re.search(pattern, raw_output)
         output = int(match.group(1)) if match else None
         
@@ -126,6 +129,7 @@ class NoEvaluator(EvaluatorBase):
     def on_topic_score(self, attack_prompt_list, original_prompt):
         return [1 for _ in attack_prompt_list] 
 
+
 class GPTEvaluator(EvaluatorBase):
     def __init__(self, args):
         super(GPTEvaluator, self).__init__(args)
@@ -174,6 +178,64 @@ class GPTEvaluator(EvaluatorBase):
 
 
 class OpenSourceEvaluator(EvaluatorBase):
+
+    def __init__(self, args): 
+        super().__init__(args)
+
+        model_name = args.evaluator_model
+        model, self.template = load_indiv_model(model_name)
+        self.evaluator_model = model
+
+    def create_conv(self, full_prompt, system_prompt=None):
+        if system_prompt is None:
+            system_prompt = self.system_prompt
+        
+        conv = get_conversation_template(self.evaluator_name)
+        conv.set_system_message(system_prompt)
+        conv.append_message(conv.roles[0], full_prompt)
+        conv.append_message(conv.roles[1], "")
+
+        return conv.get_prompt()
+    
+    def judge_score(self, attack_prompt_list, target_response_list):
+        convs_list = [
+                    self.create_conv(self.get_evaluator_prompt(prompt, response)) 
+                    for prompt, response in zip(attack_prompt_list, target_response_list)
+                ]
+
+        print(f'\tQuerying evaluator with {len(attack_prompt_list)} prompts (to evaluate judge scores)', flush=True)
+
+        print(convs_list)
+        raw_outputs = self.evaluator_model.batched_generate(convs_list, 
+                                                        max_n_tokens = self.max_n_tokens,
+                                                        temperature = self.temperature,
+                                                        top_p=0.9)
+        
+        print("judge_score")
+        print(raw_outputs)
+        outputs = [self.process_output_judge_score(raw_output) for raw_output in raw_outputs]
+        return outputs
+
+    def on_topic_score(self, attack_prompt_list, original_prompt):
+        convs_list = [
+                    self.create_conv(self.get_evaluator_prompt_on_topic(prompt), system_prompt=self.system_prompt_on_topic) 
+                    for prompt in attack_prompt_list
+                ]
+        
+        print(f'\tQuerying evaluator with {len(attack_prompt_list)} prompts (to evaluate on-topic scores)', flush=True)
+
+        print(convs_list)
+        raw_outputs = self.evaluator_model.batched_generate(convs_list, 
+                                                        max_n_tokens = self.max_n_tokens,
+                                                        temperature = self.temperature,
+                                                        top_p=0.9)
+        print("on_topic_score")
+        print(raw_outputs)
+        outputs = [self.process_output_on_topic_score(raw_output) for raw_output in raw_outputs]
+        return outputs
+
+
+class OpenSourceEvaluator_bak(EvaluatorBase):
 
     def __init__(self, args): 
         super().__init__(args)

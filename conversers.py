@@ -1,9 +1,9 @@
-
+# import deepspeed
 import common
 from language_models import GPT, PaLM, HuggingFace, APIModelLlama7B, APIModelVicuna13B
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
-from config import VICUNA_PATH, LLAMA_PATH, ATTACK_TEMP, TARGET_TEMP, ATTACK_TOP_P, TARGET_TOP_P, MAX_PARALLEL_STREAMS 
+from config import VICUNA_PATH, LLAMA_PATH, ATTACK_TEMP, TARGET_TEMP, ATTACK_TOP_P, TARGET_TOP_P, MAX_PARALLEL_STREAMS, MISTRAL_PATH, USE_VLLM
 
 def load_target_model(args):
     target_llm = TargetLLM(model_name = args.target_model, 
@@ -20,7 +20,7 @@ def load_attack_and_target_models(args):
                         max_n_attack_attempts = args.max_n_attack_attempts, 
                         temperature = ATTACK_TEMP, # init to 1
                         top_p = ATTACK_TOP_P, # init to 0.9
-                        device=0
+                        device=0 % args.gpus
                         )
     preloaded_model = None
     if args.attack_model == args.target_model:
@@ -31,7 +31,7 @@ def load_attack_and_target_models(args):
                         temperature = TARGET_TEMP, # init to 0
                         top_p = TARGET_TOP_P, # init to 1
                         preloaded_model = preloaded_model,
-                        device=1
+                        device=1 % args.gpus
                         )
     return attack_llm, target_llm
 
@@ -211,7 +211,7 @@ class TargetLLM():
 
 
 
-def load_indiv_model(model_name, device="auto"):
+def load_indiv_model(model_name, device="auto", cache = {}):
     model_path, template = get_model_path_and_template(model_name)
     
     common.MODEL_NAME = model_name
@@ -224,13 +224,29 @@ def load_indiv_model(model_name, device="auto"):
         lm = APIModelLlama7B(model_name)
     elif model_name == 'vicuna-api-model':
         lm = APIModelVicuna13B(model_name)
+    elif model_name in cache:
+        lm = cache[model_name]
     else:
+        # if not USE_VLLM:
         model = AutoModelForCausalLM.from_pretrained(
                 model_path, 
                 torch_dtype=torch.float16,
                 use_flash_attention_2=True,
                 low_cpu_mem_usage=True,
                 device_map=device).eval()
+        
+        # device = model.device
+        
+        # model = deepspeed.init_inference(
+        #     model=model,  # Transformers models
+        #     mp_size=1,  # Number of GPU
+        #     dtype=torch.float16,  # dtype of the weights (fp16)
+        #     replace_with_kernel_inject=True,  # replace the model with the kernel injector
+        #     max_out_tokens=4096,
+        # )
+        # model.device = device
+        print(model)
+        print(device)
 
         tokenizer = AutoTokenizer.from_pretrained(
             model_path,
@@ -243,10 +259,15 @@ def load_indiv_model(model_name, device="auto"):
         if 'vicuna' in model_path.lower():
             tokenizer.pad_token = tokenizer.eos_token
             tokenizer.padding_side = 'left'
+        if 'mistral' in model_path.lower():
+            tokenizer.pad_token = tokenizer.eos_token
+            tokenizer.padding_side = 'left'
         if not tokenizer.pad_token:
             tokenizer.pad_token = tokenizer.eos_token
 
         lm = HuggingFace(model_name, model, tokenizer)
+
+        cache[model_name] = lm
     
     return lm, template
 
@@ -287,6 +308,10 @@ def get_model_path_and_template(model_name):
         "palm-2":{
             "path":"palm-2",
             "template":"palm-2"
+        },
+        "mistral":{
+            "path":MISTRAL_PATH,
+            "template":"mistral"
         }
     }
     path, template = full_model_dict[model_name]["path"], full_model_dict[model_name]["template"]
