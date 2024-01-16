@@ -16,5 +16,7 @@ TARGET_TOP_P = 1
 # Increase the above allow more streams in parallel
 # Decrease it to reduce the memory requirement 
 MAX_PARALLEL_STREAMS = 5
+USE_VLLM=False
 
-USE_VLLM=True
+# MAX_PARALLEL_STREAMS = 20
+# USE_VLLM=True

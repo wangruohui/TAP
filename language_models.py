@@ -85,69 +85,33 @@ class HuggingFace(LanguageModel):
             16675])
 
 
-        
-# class vLLM(LanguageModel):
-#     def __init__(self,model_name, model, tokenizer):
-#         from vllm import LLM
-#         self.model_name = model_name
-#         self.model = model 
-#         self.tokenizer = tokenizer
-#         self.eos_token_ids = [self.tokenizer.eos_token_id]
+class vLLM(LanguageModel):
+    def __init__(self,model_name, model, tokenizer):
+        self.model_name = model_name
+        self.model = model 
+        self.tokenizer = tokenizer
+        self.eos_token_ids = [self.tokenizer.eos_token_id]
 
-#     def batched_generate(self, 
-#                         full_prompts_list,
-#                         max_n_tokens: int, 
-#                         temperature: float,
-#                         top_p: float = 1.0,):
-#         inputs = self.tokenizer(full_prompts_list, return_tensors='pt', padding=True)
-#         # print(inputs)
-#         inputs = {k: v.to(self.model.device.index) for k, v in inputs.items()} 
-#         # print(inputs)
+    def batched_generate(self, 
+                        full_prompts_list,
+                        max_n_tokens: int, 
+                        temperature: float,
+                        top_p: float = 1.0):
 
-        
-#         # Batch generation
-#         if temperature > 0:
-#             output_ids = self.model.generate(
-#                 **inputs,
-#                 max_new_tokens=max_n_tokens, 
-#                 do_sample=True,
-#                 temperature=temperature,
-#                 eos_token_id=self.eos_token_ids,
-#                 top_p=top_p,
-#             )
-#         else:
-#             output_ids = self.model.generate(
-#                 **inputs,
-#                 max_new_tokens=max_n_tokens, 
-#                 do_sample=False,
-#                 eos_token_id=self.eos_token_ids,
-#                 top_p=1,
-#                 temperature=1, # To prevent warning messages
-#             )
-            
-#         # If the model is not an encoder-decoder type, slice off the input tokens
-#         if not self.model.config.is_encoder_decoder:
-#             output_ids = output_ids[:, inputs["input_ids"].shape[1]:]
+        from vllm import SamplingParams
+        param = SamplingParams(max_tokens=max_n_tokens, temperature=temperature, top_p=top_p)
+        outputs = self.model.generate(full_prompts_list, param, use_tqdm=False)
+        outputs_list = [o.outputs[0].text for o in outputs]
 
-#         # Batch decoding
-#         outputs_list = self.tokenizer.batch_decode(output_ids, skip_special_tokens=True)
+        return outputs_list
 
-#         for key in inputs:
-#             inputs[key].to('cpu')
-#         output_ids.to('cpu')
-#         del inputs, output_ids
-#         gc.collect()
-#         torch.cuda.empty_cache()
-
-#         return outputs_list
-
-#     def extend_eos_tokens(self):        
-#         # Add closing braces for Vicuna/Llama eos when using attacker model
-#         self.eos_token_ids.extend([
-#             self.tokenizer.encode("}")[1],
-#             29913, 
-#             9092,
-#             16675])
+    def extend_eos_tokens(self):
+        # Add closing braces for Vicuna/Llama eos when using attacker model
+        self.eos_token_ids.extend([
+            self.tokenizer.encode("}")[1],
+            29913, 
+            9092,
+            16675])
 
 
 class APIModel(LanguageModel): 

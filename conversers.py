@@ -1,6 +1,6 @@
 # import deepspeed
 import common
-from language_models import GPT, PaLM, HuggingFace, APIModelLlama7B, APIModelVicuna13B
+from language_models import GPT, PaLM, HuggingFace, APIModelLlama7B, APIModelVicuna13B, vLLM
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from config import VICUNA_PATH, LLAMA_PATH, ATTACK_TEMP, TARGET_TEMP, ATTACK_TOP_P, TARGET_TOP_P, MAX_PARALLEL_STREAMS, MISTRAL_PATH, USE_VLLM
@@ -227,32 +227,35 @@ def load_indiv_model(model_name, device="auto", cache = {}):
     elif model_name in cache:
         lm = cache[model_name]
     else:
-        # if not USE_VLLM:
-        model = AutoModelForCausalLM.from_pretrained(
+
+        if not USE_VLLM:
+
+            model = AutoModelForCausalLM.from_pretrained(
                 model_path, 
-                torch_dtype=torch.float16,
+                torch_dtype="auto",
                 use_flash_attention_2=True,
-                low_cpu_mem_usage=True,
                 device_map=device).eval()
-        
-        # device = model.device
-        
-        # model = deepspeed.init_inference(
-        #     model=model,  # Transformers models
-        #     mp_size=1,  # Number of GPU
-        #     dtype=torch.float16,  # dtype of the weights (fp16)
-        #     replace_with_kernel_inject=True,  # replace the model with the kernel injector
-        #     max_out_tokens=4096,
-        # )
-        # model.device = device
-        print(model)
-        print(device)
+            
+            tokenizer = AutoTokenizer.from_pretrained(
+                model_path,
+                use_fast=False
+            )
 
-        tokenizer = AutoTokenizer.from_pretrained(
-            model_path,
-            use_fast=False
-        ) 
+            lm = HuggingFace(model_name, model, tokenizer)
+        
+        else:
 
+            from vllm import LLM
+            import ray
+            ray.shutdown()
+            ray.init(address='local', ignore_reinit_error=True)
+
+            model = LLM(model_path, tokenizer_mode="slow", dtype="auto", gpu_memory_utilization=0.95, worker_use_ray=True)
+
+            tokenizer = model.get_tokenizer()
+
+            lm = vLLM(model_name, model, tokenizer)
+        
         if 'llama-2' in model_path.lower():
             tokenizer.pad_token = tokenizer.unk_token
             tokenizer.padding_side = 'left'
@@ -264,8 +267,6 @@ def load_indiv_model(model_name, device="auto", cache = {}):
             tokenizer.padding_side = 'left'
         if not tokenizer.pad_token:
             tokenizer.pad_token = tokenizer.eos_token
-
-        lm = HuggingFace(model_name, model, tokenizer)
 
         cache[model_name] = lm
     

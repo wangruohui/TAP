@@ -267,13 +267,13 @@ if __name__ == '__main__':
         "--attack-model",
         default = "vicuna",
         help = "Name of attacking model.",
-        # choices=["vicuna", 
-        #          "vicuna-api-model", 
-        #          "gpt-3.5-turbo", 
-        #          "gpt-4", 
-        #          "gpt-4-turbo", 
-        #          "gpt-4-1106-preview", # This is same as gpt-4-turbo
-        #          'llama-2-api-model']
+        choices=["vicuna", 
+                 "vicuna-api-model", 
+                #  "gpt-3.5-turbo",
+                #  "gpt-3.5-turbo-1106",
+                #  "gpt-4", 
+                #  "gpt-4-1106-preview", # This is same as gpt-4-turbo
+                 'llama-2-api-model']
     )
     parser.add_argument(
         "--attack-max-n-tokens",
@@ -298,10 +298,11 @@ if __name__ == '__main__':
                  'llama-2-api-model', 
                  "vicuna",
                  'vicuna-api-model', 
-                 "gpt-3.5-turbo", 
-                 "gpt-4",
-                 'gpt-4-turbo', 
-                 'gpt-4-1106-preview', # This is same as gpt-4-turbo
+                #  "gpt-3.5-turbo", 
+                 "gpt-3.5-turbo-1106",
+                #  "gpt-4",
+                #  'gpt-4-turbo', 
+                #  'gpt-4-1106-preview', # This is same as gpt-4-turbo
                  "palm-2"]
     )
     parser.add_argument(
@@ -317,11 +318,14 @@ if __name__ == '__main__':
         "--evaluator-model",
         default="gpt-3.5-turbo",
         help="Name of evaluator model.",
-        # choices=["gpt-3.5-turbo", 
-        #          "gpt-4", 
-        #          "gpt-4-turbo", 
-        #          "gpt-4-1106-preview", 
-        #          "no-evaluator"]
+        choices=["gpt-3.5-turbo", 
+                 "gpt-3.5-turbo-1106", 
+                #  "gpt-4", 
+                #  "gpt-4-turbo", 
+                 "gpt-4-1106-preview", 
+                 "no-evaluator",
+                 "simple",
+                 "vicuna"]
     )
     parser.add_argument(
         "--evaluator-max-n-tokens",
@@ -415,5 +419,5 @@ if __name__ == '__main__':
     ##################################################
 
     args = parser.parse_args()
-
+    print(args)
     main(args)
