@@ -1,3 +1,7 @@
+import sys
+import warnings
+import requests
+from pathlib import Path
 import openai
 # import anthropic
 import os
@@ -342,4 +346,86 @@ class PaLM():
                         max_n_tokens: int, 
                         temperature: float,
                         top_p: float = 1.0,):
+        return [self.generate(conv, max_n_tokens, temperature, top_p) for conv in convs_list]
+
+
+class MyClaude(LanguageModel):
+    
+    def __init__(self,
+                 model_name='claude-instant-1.2',
+                 api_key="",
+                 max_token=512,
+                 system=""
+                 ):
+        if not api_key:
+            api_key = os.getenv("CLAUDE_API_KEY")
+        self.api_key = api_key
+        warnings.warn(f"Using CLAUDE_API_KEY {api_key}")
+        self.semaphores = Path.home() / 'semaphores' / model_name
+        warnings.warn(f"Semaphore {self.semaphores}")
+        self.url = "https://oneapi.run.place/v1/chat/completions"
+
+        super().__init__(model_name)
+
+    def acquire(self):
+        assert self.semaphores.exists()
+
+        while True:
+            try:
+                d = next(self.semaphores.iterdir())
+                d.rmdir()
+                break
+            except StopIteration:
+                time.sleep(1)
+                print("Waiting for semaphore...")
+
+    def generate(self, conv: List[Dict], 
+                max_n_tokens: int, 
+                temperature: float,
+                top_p: float, max_trials=5, failure_sleep_time=10, timeout=120):
+        warnings.warn(conv)
+        payload = {
+            "model": self.model_name,
+            "max_token": max_n_tokens,
+            "messages": conv,
+            "stream": False,
+            "top_p": top_p,
+            "temprature": temperature
+        }
+        headers = {
+            'Authorization': f'Bearer {self.api_key}',
+            'Content-Type': 'application/json'
+        }
+
+        retry_count = 0
+        success = False
+        while retry_count < max_trials and not success:
+            try:
+                self.acquire()
+                response = requests.post(
+                    self.url, headers=headers, json=payload, timeout=timeout)
+                success = True
+                break
+            except Exception as e:
+                print(f"Error occurred: {str(e)}", file=sys.stderr)
+                retry_count += 1
+                print(f"Retrying... (Attempt {retry_count}/{5})", file=sys.stderr)
+                time.sleep(failure_sleep_time)
+        if retry_count == max_trials:
+            output = 'no response'
+        else:
+            try:
+                output = response.json()['choices'][0]['message']['content']
+            except:
+                output = str(response.content)
+        import pdb; pdb.set_trace()
+        print('response: ', response)
+        print('output: ', output, flush=True, file=sys.stderr)
+        return output
+
+    def batched_generate(self, 
+                        convs_list: List[List[Dict]],
+                        max_n_tokens: int, 
+                        temperature: float,
+                        top_p: float):
         return [self.generate(conv, max_n_tokens, temperature, top_p) for conv in convs_list]

@@ -1,6 +1,6 @@
 # import deepspeed
 import common
-from language_models import GPT, PaLM, HuggingFace, APIModelLlama7B, APIModelVicuna13B, vLLM
+from language_models import GPT, PaLM, HuggingFace, APIModelLlama7B, APIModelVicuna13B, vLLM, MyClaude
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from config import VICUNA_PATH, LLAMA_PATH, ATTACK_TEMP, TARGET_TEMP, ATTACK_TOP_P, TARGET_TOP_P, MAX_PARALLEL_STREAMS, MISTRAL_PATH, USE_VLLM
@@ -48,6 +48,8 @@ class AttackLLM():
                 temperature: float,
                 top_p: float,
                 device: int = 0):
+        assert temperature > 0
+        assert top_p > 0
 
         self.model_name = model_name
         self.temperature = temperature
@@ -164,6 +166,9 @@ class TargetLLM():
             preloaded_model: object = None,
             device = 'auto'):
 
+        assert temperature == 0
+        assert top_p < 0.1
+
         self.model_name = model_name
         self.temperature = temperature
         self.max_n_tokens = max_n_tokens
@@ -180,7 +185,7 @@ class TargetLLM():
         full_prompts = []
         for conv, prompt in zip(convs_list, prompts_list):
             conv.append_message(conv.roles[0], prompt)
-            if "gpt" in self.model_name:
+            if "gpt" in self.model_name or "claude" in self.model_name:
                 # OpenAI does not have separators
                 full_prompts.append(conv.to_openai_api_messages())
             elif "palm" in self.model_name:
@@ -216,10 +221,12 @@ def load_indiv_model(model_name, device="auto", cache = {}):
     
     common.MODEL_NAME = model_name
     
-    if model_name in ["gpt-3.5-turbo", "gpt-4", 'gpt-4-1106-preview']:
+    if model_name in ["gpt-3.5-turbo-1106", "gpt-3.5-turbo", "gpt-4", 'gpt-4-1106-preview']:
         lm = GPT(model_name)
     elif model_name == "palm-2":
         lm = PaLM(model_name)
+    elif model_name in ["claude-instant-1.2","claude-instant-1","claude-2"]:
+        lm = MyClaude(model_name)
     elif model_name == 'llama-2-api-model':
         lm = APIModelLlama7B(model_name)
     elif model_name == 'vicuna-api-model':
@@ -246,11 +253,16 @@ def load_indiv_model(model_name, device="auto", cache = {}):
         else:
 
             from vllm import LLM
-            import ray
-            ray.shutdown()
-            ray.init(address='local', ignore_reinit_error=True)
+            # import ray
+            # ray.shutdown()
+            # ray.init(address='local', ignore_reinit_error=True)
+            # , worker_use_ray=True
+            if "33" in model_path:
+                tp = 2
+            else:
+                tp = 1
 
-            model = LLM(model_path, tokenizer_mode="slow", dtype="auto", gpu_memory_utilization=0.95, worker_use_ray=True)
+            model = LLM(model_path, tokenizer_mode="slow", dtype="auto", gpu_memory_utilization=0.95, tensor_parallel_size=tp)
 
             tokenizer = model.get_tokenizer()
 
@@ -290,6 +302,10 @@ def get_model_path_and_template(model_name):
             "path": "gpt-3.5-turbo",
             "template":"gpt-3.5-turbo"
         },
+        "gpt-3.5-turbo-1106": {
+            "path": "gpt-3.5-turbo-1106",
+            "template":"gpt-3.5-turbo"
+        },
         "vicuna":{
             "path": VICUNA_PATH,
             "template":"vicuna_v1.1"
@@ -313,6 +329,10 @@ def get_model_path_and_template(model_name):
         "mistral":{
             "path":MISTRAL_PATH,
             "template":"mistral"
+        },
+        "claude-instant-1.2":{
+            "path":"claude-instant-1.2",
+            "template":"claude"
         }
     }
     path, template = full_model_dict[model_name]["path"], full_model_dict[model_name]["template"]

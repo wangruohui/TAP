@@ -298,6 +298,7 @@ if __name__ == '__main__':
                  'llama-2-api-model', 
                  "vicuna",
                  'vicuna-api-model', 
+                 'claude-instant-1.2',
                 #  "gpt-3.5-turbo", 
                  "gpt-3.5-turbo-1106",
                 #  "gpt-4",
