@@ -1,9 +1,9 @@
-
+# import deepspeed
 import common
-from language_models import GPT, PaLM, HuggingFace, APIModelLlama7B, APIModelVicuna13B
+from language_models import GPT, PaLM, HuggingFace, APIModelLlama7B, APIModelVicuna13B, vLLM, MyClaude
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
-from config import VICUNA_PATH, LLAMA_PATH, ATTACK_TEMP, TARGET_TEMP, ATTACK_TOP_P, TARGET_TOP_P, MAX_PARALLEL_STREAMS 
+from config import VICUNA_PATH, LLAMA_PATH, ATTACK_TEMP, TARGET_TEMP, ATTACK_TOP_P, TARGET_TOP_P, MAX_PARALLEL_STREAMS, MISTRAL_PATH, USE_VLLM
 
 def load_target_model(args):
     target_llm = TargetLLM(model_name = args.target_model, 
@@ -20,6 +20,7 @@ def load_attack_and_target_models(args):
                         max_n_attack_attempts = args.max_n_attack_attempts, 
                         temperature = ATTACK_TEMP, # init to 1
                         top_p = ATTACK_TOP_P, # init to 0.9
+                        device=0 % args.gpus
                         )
     preloaded_model = None
     if args.attack_model == args.target_model:
@@ -30,6 +31,7 @@ def load_attack_and_target_models(args):
                         temperature = TARGET_TEMP, # init to 0
                         top_p = TARGET_TOP_P, # init to 1
                         preloaded_model = preloaded_model,
+                        device=1 % args.gpus
                         )
     return attack_llm, target_llm
 
@@ -44,15 +46,18 @@ class AttackLLM():
                 max_n_tokens: int, 
                 max_n_attack_attempts: int, 
                 temperature: float,
-                top_p: float):
-        
+                top_p: float,
+                device: int = 0):
+        assert temperature > 0
+        assert top_p > 0
+
         self.model_name = model_name
         self.temperature = temperature
         self.max_n_tokens = max_n_tokens
         self.max_n_attack_attempts = max_n_attack_attempts
         self.top_p = top_p
-        self.model, self.template = load_indiv_model(model_name)
-        
+        self.model, self.template = load_indiv_model(model_name, device=device)
+
         if "vicuna" in model_name or "llama" in model_name:
             if "api-model" not in model_name:
                 self.model.extend_eos_tokens()
@@ -158,14 +163,18 @@ class TargetLLM():
             max_n_tokens: int, 
             temperature: float,
             top_p: float,
-            preloaded_model: object = None):
-        
+            preloaded_model: object = None,
+            device = 'auto'):
+
+        assert temperature == 0
+        assert top_p < 0.1
+
         self.model_name = model_name
         self.temperature = temperature
         self.max_n_tokens = max_n_tokens
         self.top_p = top_p
         if preloaded_model is None:
-            self.model, self.template = load_indiv_model(model_name)
+            self.model, self.template = load_indiv_model(model_name, device=device)
         else:
             self.model = preloaded_model
             _, self.template = get_model_path_and_template(model_name)
@@ -176,7 +185,7 @@ class TargetLLM():
         full_prompts = []
         for conv, prompt in zip(convs_list, prompts_list):
             conv.append_message(conv.roles[0], prompt)
-            if "gpt" in self.model_name:
+            if "gpt" in self.model_name or "claude" in self.model_name:
                 # OpenAI does not have separators
                 full_prompts.append(conv.to_openai_api_messages())
             elif "palm" in self.model_name:
@@ -207,41 +216,71 @@ class TargetLLM():
 
 
 
-def load_indiv_model(model_name):
+def load_indiv_model(model_name, device="auto", cache = {}):
     model_path, template = get_model_path_and_template(model_name)
     
     common.MODEL_NAME = model_name
     
-    if model_name in ["gpt-3.5-turbo", "gpt-4", 'gpt-4-1106-preview']:
+    if model_name in ["gpt-3.5-turbo-1106", "gpt-3.5-turbo", "gpt-4", 'gpt-4-1106-preview']:
         lm = GPT(model_name)
     elif model_name == "palm-2":
         lm = PaLM(model_name)
+    elif model_name in ["claude-instant-1.2","claude-instant-1","claude-2"]:
+        lm = MyClaude(model_name)
     elif model_name == 'llama-2-api-model':
         lm = APIModelLlama7B(model_name)
     elif model_name == 'vicuna-api-model':
         lm = APIModelVicuna13B(model_name)
+    elif model_name in cache:
+        lm = cache[model_name]
     else:
-        model = AutoModelForCausalLM.from_pretrained(
+
+        if not USE_VLLM:
+
+            model = AutoModelForCausalLM.from_pretrained(
                 model_path, 
-                torch_dtype=torch.float16,
-                low_cpu_mem_usage=True,
-                device_map="auto").eval()
+                torch_dtype="auto",
+                use_flash_attention_2=True,
+                device_map=device).eval()
+            
+            tokenizer = AutoTokenizer.from_pretrained(
+                model_path,
+                use_fast=False
+            )
 
-        tokenizer = AutoTokenizer.from_pretrained(
-            model_path,
-            use_fast=False
-        ) 
+            lm = HuggingFace(model_name, model, tokenizer)
+        
+        else:
 
+            from vllm import LLM
+            # import ray
+            # ray.shutdown()
+            # ray.init(address='local', ignore_reinit_error=True)
+            # , worker_use_ray=True
+            if "33" in model_path:
+                tp = 2
+            else:
+                tp = 1
+
+            model = LLM(model_path, tokenizer_mode="slow", dtype="auto", gpu_memory_utilization=0.95, tensor_parallel_size=tp)
+
+            tokenizer = model.get_tokenizer()
+
+            lm = vLLM(model_name, model, tokenizer)
+        
         if 'llama-2' in model_path.lower():
             tokenizer.pad_token = tokenizer.unk_token
             tokenizer.padding_side = 'left'
         if 'vicuna' in model_path.lower():
             tokenizer.pad_token = tokenizer.eos_token
             tokenizer.padding_side = 'left'
+        if 'mistral' in model_path.lower():
+            tokenizer.pad_token = tokenizer.eos_token
+            tokenizer.padding_side = 'left'
         if not tokenizer.pad_token:
             tokenizer.pad_token = tokenizer.eos_token
 
-        lm = HuggingFace(model_name, model, tokenizer)
+        cache[model_name] = lm
     
     return lm, template
 
@@ -263,6 +302,10 @@ def get_model_path_and_template(model_name):
             "path": "gpt-3.5-turbo",
             "template":"gpt-3.5-turbo"
         },
+        "gpt-3.5-turbo-1106": {
+            "path": "gpt-3.5-turbo-1106",
+            "template":"gpt-3.5-turbo"
+        },
         "vicuna":{
             "path": VICUNA_PATH,
             "template":"vicuna_v1.1"
@@ -282,6 +325,14 @@ def get_model_path_and_template(model_name):
         "palm-2":{
             "path":"palm-2",
             "template":"palm-2"
+        },
+        "mistral":{
+            "path":MISTRAL_PATH,
+            "template":"mistral"
+        },
+        "claude-instant-1.2":{
+            "path":"claude-instant-1.2",
+            "template":"claude"
         }
     }
     path, template = full_model_dict[model_name]["path"], full_model_dict[model_name]["template"]

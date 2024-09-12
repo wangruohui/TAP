@@ -1,11 +1,15 @@
+import sys
+import warnings
+import requests
+from pathlib import Path
 import openai
-import anthropic
+# import anthropic
 import os
 import time
 import torch
 import gc
 from typing import Dict, List
-import google.generativeai as palm
+# import google.generativeai as palm
 import urllib3
 from copy import deepcopy
 
@@ -35,7 +39,9 @@ class HuggingFace(LanguageModel):
                         temperature: float,
                         top_p: float = 1.0,):
         inputs = self.tokenizer(full_prompts_list, return_tensors='pt', padding=True)
+        # print(inputs)
         inputs = {k: v.to(self.model.device.index) for k, v in inputs.items()} 
+        # print(inputs)
 
         
         # Batch generation
@@ -75,6 +81,35 @@ class HuggingFace(LanguageModel):
         return outputs_list
 
     def extend_eos_tokens(self):        
+        # Add closing braces for Vicuna/Llama eos when using attacker model
+        self.eos_token_ids.extend([
+            self.tokenizer.encode("}")[1],
+            29913, 
+            9092,
+            16675])
+
+
+class vLLM(LanguageModel):
+    def __init__(self,model_name, model, tokenizer):
+        self.model_name = model_name
+        self.model = model 
+        self.tokenizer = tokenizer
+        self.eos_token_ids = [self.tokenizer.eos_token_id]
+
+    def batched_generate(self, 
+                        full_prompts_list,
+                        max_n_tokens: int, 
+                        temperature: float,
+                        top_p: float = 1.0):
+
+        from vllm import SamplingParams
+        param = SamplingParams(max_tokens=max_n_tokens, temperature=temperature, top_p=top_p)
+        outputs = self.model.generate(full_prompts_list, param, use_tqdm=False)
+        outputs_list = [o.outputs[0].text for o in outputs]
+
+        return outputs_list
+
+    def extend_eos_tokens(self):
         # Add closing braces for Vicuna/Llama eos when using attacker model
         self.eos_token_ids.extend([
             self.tokenizer.encode("}")[1],
@@ -219,18 +254,27 @@ class GPT(LanguageModel):
             str: generated response
         '''
         output = self.API_ERROR_OUTPUT
+        client = openai.OpenAI()
         for _ in range(self.API_MAX_RETRY):
-            try: 
-                
-                response = openai.ChatCompletion.create(
+            try:
+                # response = openai.ChatCompletion.create(
+                #             model = self.model_name,
+                #             messages = conv,
+                #             max_tokens = max_n_tokens,
+                #             temperature = temperature,
+                #             top_p = top_p,
+                #             request_timeout = self.API_TIMEOUT,
+                #             )
+                # output = response["choices"][0]["message"]["content"]
+
+                completion = client.chat.completions.create(
                             model = self.model_name,
                             messages = conv,
                             max_tokens = max_n_tokens,
                             temperature = temperature,
-                            top_p = top_p,
-                            request_timeout = self.API_TIMEOUT,
-                            )
-                output = response["choices"][0]["message"]["content"]
+                            top_p = top_p)
+                output = completion.choices[0].message.content
+
                 break
             except Exception as e: 
                 print(type(e), e)
@@ -302,4 +346,86 @@ class PaLM():
                         max_n_tokens: int, 
                         temperature: float,
                         top_p: float = 1.0,):
+        return [self.generate(conv, max_n_tokens, temperature, top_p) for conv in convs_list]
+
+
+class MyClaude(LanguageModel):
+    
+    def __init__(self,
+                 model_name='claude-instant-1.2',
+                 api_key="",
+                 max_token=512,
+                 system=""
+                 ):
+        if not api_key:
+            api_key = os.getenv("CLAUDE_API_KEY")
+        self.api_key = api_key
+        warnings.warn(f"Using CLAUDE_API_KEY {api_key}")
+        self.semaphores = Path.home() / 'semaphores' / model_name
+        warnings.warn(f"Semaphore {self.semaphores}")
+        self.url = "https://oneapi.run.place/v1/chat/completions"
+
+        super().__init__(model_name)
+
+    def acquire(self):
+        assert self.semaphores.exists()
+
+        while True:
+            try:
+                d = next(self.semaphores.iterdir())
+                d.rmdir()
+                break
+            except StopIteration:
+                time.sleep(1)
+                print("Waiting for semaphore...")
+
+    def generate(self, conv: List[Dict], 
+                max_n_tokens: int, 
+                temperature: float,
+                top_p: float, max_trials=5, failure_sleep_time=10, timeout=120):
+        warnings.warn(conv)
+        payload = {
+            "model": self.model_name,
+            "max_token": max_n_tokens,
+            "messages": conv,
+            "stream": False,
+            "top_p": top_p,
+            "temprature": temperature
+        }
+        headers = {
+            'Authorization': f'Bearer {self.api_key}',
+            'Content-Type': 'application/json'
+        }
+
+        retry_count = 0
+        success = False
+        while retry_count < max_trials and not success:
+            try:
+                self.acquire()
+                response = requests.post(
+                    self.url, headers=headers, json=payload, timeout=timeout)
+                success = True
+                break
+            except Exception as e:
+                print(f"Error occurred: {str(e)}", file=sys.stderr)
+                retry_count += 1
+                print(f"Retrying... (Attempt {retry_count}/{5})", file=sys.stderr)
+                time.sleep(failure_sleep_time)
+        if retry_count == max_trials:
+            output = 'no response'
+        else:
+            try:
+                output = response.json()['choices'][0]['message']['content']
+            except:
+                output = str(response.content)
+        import pdb; pdb.set_trace()
+        print('response: ', response)
+        print('output: ', output, flush=True, file=sys.stderr)
+        return output
+
+    def batched_generate(self, 
+                        convs_list: List[List[Dict]],
+                        max_n_tokens: int, 
+                        temperature: float,
+                        top_p: float):
         return [self.generate(conv, max_n_tokens, temperature, top_p) for conv in convs_list]

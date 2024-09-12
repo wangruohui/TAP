@@ -1,3 +1,4 @@
+import os
 import copy
 import argparse
 import numpy as np
@@ -89,6 +90,8 @@ def main(args):
 
     common.ITER_INDEX = args.iter_index
     common.STORE_FOLDER = args.store_folder 
+
+    os.makedirs(common.STORE_FOLDER, exist_ok=True)
 
     # Initialize attack parameters
     attack_params = {
@@ -253,6 +256,12 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser()
 
+    parser.add_argument(
+        "--gpus",
+        default = 1,
+        type=int,
+        help = "Number of GPUs available."
+    )
     ########### Attack model parameters ##########
     parser.add_argument(
         "--attack-model",
@@ -260,10 +269,10 @@ if __name__ == '__main__':
         help = "Name of attacking model.",
         choices=["vicuna", 
                  "vicuna-api-model", 
-                 "gpt-3.5-turbo", 
-                 "gpt-4", 
-                 "gpt-4-turbo", 
-                 "gpt-4-1106-preview", # This is same as gpt-4-turbo
+                #  "gpt-3.5-turbo",
+                #  "gpt-3.5-turbo-1106",
+                #  "gpt-4", 
+                #  "gpt-4-1106-preview", # This is same as gpt-4-turbo
                  'llama-2-api-model']
     )
     parser.add_argument(
@@ -289,16 +298,18 @@ if __name__ == '__main__':
                  'llama-2-api-model', 
                  "vicuna",
                  'vicuna-api-model', 
-                 "gpt-3.5-turbo", 
-                 "gpt-4",
-                 'gpt-4-turbo', 
-                 'gpt-4-1106-preview', # This is same as gpt-4-turbo
+                 'claude-instant-1.2',
+                #  "gpt-3.5-turbo", 
+                 "gpt-3.5-turbo-1106",
+                #  "gpt-4",
+                #  'gpt-4-turbo', 
+                #  'gpt-4-1106-preview', # This is same as gpt-4-turbo
                  "palm-2"]
     )
     parser.add_argument(
         "--target-max-n-tokens",
         type = int,
-        default = 150,
+        default = 250,
         help = "Maximum number of generated tokens for the target."
     )
     ##################################################
@@ -309,10 +320,13 @@ if __name__ == '__main__':
         default="gpt-3.5-turbo",
         help="Name of evaluator model.",
         choices=["gpt-3.5-turbo", 
-                 "gpt-4", 
-                 "gpt-4-turbo", 
+                 "gpt-3.5-turbo-1106", 
+                #  "gpt-4", 
+                #  "gpt-4-turbo", 
                  "gpt-4-1106-preview", 
-                 "no-evaluator"]
+                 "no-evaluator",
+                 "simple",
+                 "vicuna"]
     )
     parser.add_argument(
         "--evaluator-max-n-tokens",
@@ -406,5 +420,5 @@ if __name__ == '__main__':
     ##################################################
 
     args = parser.parse_args()
-
+    print(args)
     main(args)
